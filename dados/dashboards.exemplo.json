@@ -1,0 +1,8 @@
+[
+  {"nome": "Vendas",           "url": "https://app.powerbi.com", "emoji": "📈", "data": "2026-10-20"},
+  {"nome": "Finanças",         "url": "https://app.powerbi.com", "emoji": "💰", "data": "2026-10-21"},
+  {"nome": "Stock",            "url": "https://app.powerbi.com", "emoji": "📦"},
+  {"nome": "Recursos Humanos", "url": "https://app.powerbi.com", "emoji": "👥"},
+  {"nome": "Produção",         "url": "https://app.powerbi.com", "emoji": "🏭"},
+  {"nome": "Qualidade",        "url": "https://app.powerbi.com", "emoji": "✅"}
+]
