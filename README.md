@@ -70,7 +70,18 @@ python app.py
 
 Nota: a segurança vem das permissões do servidor, não da app. O launcher não faz autenticação própria.
 
+## Segurança dos links
+
+Só são aceites links `https://`. Entradas com `file:`, `http:` ou outros esquemas são ignoradas. Para restringir ainda mais, defina `LAUNCHER_HOSTS` (ex.: `app.powerbi.com,powerbi.com`).
+
+## Testes
+
+```
+python -m unittest
+```
+
 ## Limitações
 
-- O feedback fica num ficheiro de texto. Se duas pessoas enviarem ao mesmo tempo, uma pode sobrepor a outra (para uso pequeno chega; para mais, o próximo passo seria uma base de dados).
+- O feedback fica num ficheiro de texto. As gravações usam um ficheiro `.lock` e escrita atómica, por isso envios simultâneos não se perdem, mas em partilhas de rede muito lentas ou com muitos utilizadores o próximo passo seria uma base de dados.
+- Se `feedback.json` estiver corrompido, a app avisa e não o altera (antes sobrescrevia-o).
 - Apagar feedback pede o email usado no envio, mas isto não é segurança a sério, é só confirmação.
