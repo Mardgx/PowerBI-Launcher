@@ -1,10 +1,14 @@
 import sys
 import os
-import json
 import html
+import getpass
 import webbrowser
 from functools import partial
 from datetime import datetime
+
+from armazenamento import (
+    FicheiroCorrompido, ler_json, alterar_lista, filtrar_dashboards, email_valido
+)
 
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -24,6 +28,12 @@ PASTA_DADOS = os.environ.get("LAUNCHER_DADOS") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "dados")
 FICHEIRO_DASHBOARDS = os.path.join(PASTA_DADOS, "dashboards.json")
 FICHEIRO_FEEDBACK = os.path.join(PASTA_DADOS, "feedback.json")
+
+# Opcional: restringe os links a certos domínios, separados por vírgula
+# (ex.: LAUNCHER_HOSTS=app.powerbi.com,powerbi.com). Em qualquer caso só se
+# aceitam links https.
+HOSTS_PERMITIDOS = tuple(h.strip().lower() for h in
+                         os.environ.get("LAUNCHER_HOSTS", "").split(",") if h.strip())
 
 # Formato de cada dashboard em dados/dashboards.json:
 # {"nome": "...", "url": "...", "emoji": "📊", "data": "AAAA-MM-DD"}
@@ -55,19 +65,11 @@ QLineEdit { padding: 2px 6px; }
 """
 
 
-def ler_json(caminho, se_falhar):
-    # se o ficheiro não existe ou está estragado, devolve o valor por defeito
+def utilizador_atual():
     try:
-        with open(caminho, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return se_falhar
-
-
-def gravar_json(caminho, dados):
-    os.makedirs(os.path.dirname(caminho), exist_ok=True)
-    with open(caminho, "w", encoding="utf-8") as f:
-        json.dump(dados, f, indent=2, ensure_ascii=False)
+        return getpass.getuser()
+    except Exception:
+        return ""
 
 
 class Launcher(QWidget):
@@ -102,16 +104,19 @@ class Launcher(QWidget):
         self.grid.setSpacing(20)
         self.grid.setAlignment(Qt.AlignLeft | Qt.AlignTop)
 
-        dashboards = ler_json(FICHEIRO_DASHBOARDS, [])
-        if not isinstance(dashboards, list):
+        try:
+            dashboards = ler_json(FICHEIRO_DASHBOARDS, [])
+            erro_dashboards = ""
+        except (FicheiroCorrompido, OSError) as erro:
             dashboards = []
-        # ignora entradas sem nome ou sem url
-        dashboards = [d for d in dashboards
-                      if isinstance(d, dict) and d.get("nome") and d.get("url")]
+            erro_dashboards = f"\nErro ao ler o ficheiro: {erro}"
+        # ignora entradas sem nome ou com url inválido (só https)
+        dashboards = filtrar_dashboards(dashboards, HOSTS_PERMITIDOS)
 
         if not dashboards:
             aviso = QLabel("Nenhum dashboard configurado.\n"
-                           "Adiciona-os em dados/dashboards.json")
+                           "Adiciona-os em dados/dashboards.json" + erro_dashboards)
+            aviso.setWordWrap(True)
             aviso.setStyleSheet("color:#555; font-size:13px;")
             self.grid.addWidget(aviso, 0, 0)
 
@@ -147,8 +152,18 @@ class Launcher(QWidget):
         self.montar_chat()
 
         # feedback que já estava guardado
-        for item in ler_json(FICHEIRO_FEEDBACK, []):
-            self.mostrar_feedback(item)
+        try:
+            guardados = ler_json(FICHEIRO_FEEDBACK, [])
+            if not isinstance(guardados, list):
+                raise FicheiroCorrompido("esperava-se uma lista")
+        except (FicheiroCorrompido, OSError) as erro:
+            guardados = []
+            QMessageBox.warning(self, "Aviso",
+                                f"Não foi possível ler o feedback guardado:\n{erro}\n\n"
+                                "O ficheiro não será alterado.")
+        for item in guardados:
+            if isinstance(item, dict):
+                self.mostrar_feedback(item)
 
     # ---------- cards ----------
     def criar_card(self, d):
@@ -161,17 +176,19 @@ class Launcher(QWidget):
         lay.setContentsMargins(5, 5, 5, 5)
         lay.setSpacing(2)
 
-        emoji = QLabel(d.get("emoji", "📊"))
+        emoji = QLabel(str(d.get("emoji") or "📊"))
         emoji.setObjectName("CardIcon")
         emoji.setAlignment(Qt.AlignCenter)
-        nome = QLabel(d["nome"])
+        nome = QLabel(str(d["nome"]))
         nome.setObjectName("CardText")
+        nome.setWordWrap(True)
+        btn.setToolTip(d["url"])
         nome.setAlignment(Qt.AlignCenter)
 
         data = QLabel()
         try:
             data.setText(datetime.fromisoformat(d["data"]).strftime("%d/%m/%Y"))
-        except (KeyError, ValueError):
+        except (KeyError, ValueError, TypeError):
             pass  # sem data (ou mal escrita), fica vazio
         data.setAlignment(Qt.AlignCenter)
         data.setStyleSheet("font-size:10px; color:#555;")
@@ -236,7 +253,7 @@ class Launcher(QWidget):
         self.corpo.addWidget(self.btn_erro)
 
         self.campo_email = QLineEdit()
-        self.campo_email.setPlaceholderText("Seu email")
+        self.campo_email.setPlaceholderText("O seu email")
         self.campo_email.setFixedHeight(28)
         self.campo_texto = QTextEdit()
         self.campo_texto.setPlaceholderText("Escreva os detalhes aqui...")
@@ -294,23 +311,23 @@ class Launcher(QWidget):
         if not texto:
             QMessageBox.warning(self, "Aviso", "Escreva uma mensagem antes de enviar.")
             return
-        if "@" not in email:
-            QMessageBox.warning(self, "Aviso", "Informe um email válido.")
+        if not email_valido(email):
+            QMessageBox.warning(self, "Aviso", "Indique um email válido.")
             return
 
         agora = datetime.now()
         item = {
-            "id": agora.isoformat(),
+            "id": agora.isoformat(timespec="microseconds") + "-" + str(os.getpid()),
             "tipo": self.opcao,
             "texto": texto,
             "email": email,
+            "utilizador": utilizador_atual(),
             "data": agora.strftime("%d/%m/%Y"),
         }
         try:
-            todos = ler_json(FICHEIRO_FEEDBACK, [])
-            todos.append(item)
-            gravar_json(FICHEIRO_FEEDBACK, todos)
-        except OSError as erro:
+            # lê, acrescenta e grava dentro de um bloqueio (ver armazenamento.py)
+            alterar_lista(FICHEIRO_FEEDBACK, lambda todos: todos + [item])
+        except (OSError, TimeoutError, FicheiroCorrompido) as erro:
             QMessageBox.critical(self, "Erro", f"Não foi possível guardar o feedback:\n{erro}")
             return
 
@@ -341,18 +358,27 @@ class Launcher(QWidget):
         self.lista_layout.addWidget(caixa)
 
     def apagar_feedback(self, item, caixa):
-        # só apaga quem souber o email com que enviou
-        email, ok = QInputDialog.getText(self, "Confirmar exclusão", "Digite o seu email para confirmar:")
-        if not ok:
-            return
-        if email.strip().lower() != item.get("email", "").strip().lower():
-            QMessageBox.warning(self, "Erro", "Email não confere! Não é possível apagar este feedback.")
-            return
+        # só apaga quem enviou: confere o utilizador do Windows/sistema. Em
+        # feedback antigo (sem "utilizador") pede o email, como antes.
+        # Nota: continua a ser uma verificação no cliente, não é segurança.
+        autor = item.get("utilizador")
+        if autor:
+            if autor != utilizador_atual():
+                QMessageBox.warning(self, "Erro", "Só quem enviou o feedback o pode apagar.")
+                return
+        else:
+            email, ok = QInputDialog.getText(self, "Confirmar exclusão", "Digite o seu email para confirmar:")
+            if not ok:
+                return
+            if email.strip().lower() != str(item.get("email", "")).strip().lower():
+                QMessageBox.warning(self, "Erro", "Email não confere! Não é possível apagar este feedback.")
+                return
 
         try:
-            restantes = [f for f in ler_json(FICHEIRO_FEEDBACK, []) if f.get("id") != item.get("id")]
-            gravar_json(FICHEIRO_FEEDBACK, restantes)
-        except OSError as erro:
+            alterar_lista(FICHEIRO_FEEDBACK,
+                          lambda todos: [f for f in todos
+                                         if not (isinstance(f, dict) and f.get("id") == item.get("id"))])
+        except (OSError, TimeoutError, FicheiroCorrompido) as erro:
             QMessageBox.critical(self, "Erro", f"Não foi possível apagar:\n{erro}")
             return
 
