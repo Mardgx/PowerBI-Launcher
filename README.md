@@ -17,7 +17,7 @@ O segundo comando cria o teu ficheiro de dashboards a partir do exemplo. Edita-o
 A app guarda tudo em ficheiros JSON, dentro de uma pasta `dados/`:
 
 - `dashboards.json`: a lista de dashboards que aparecem nos cards (tu crias e editas).
-- `feedback.json`: o feedback enviado pelo chat (é criado automaticamente).
+- `feedback.json`: o feedback enviado pelo chat (é criado automaticamente). Cada entrada guarda o texto, o email e o nome de utilizador do sistema de quem a enviou.
 
 Se `dashboards.json` não existir, a app mostra um aviso a pedir para o configurares.
 
@@ -52,7 +52,7 @@ Por defeito os ficheiros ficam na pasta `dados/` ao lado do `app.py`, ou seja, c
 Para uma utilização em equipa, o recomendado é colocar a pasta de dados num servidor interno da empresa e indicar o caminho com a variável de ambiente `LAUNCHER_DADOS`. Isto torna a solução mais segura e mais fácil de gerir:
 
 - **Controlo de acesso:** as permissões da pasta no servidor definem quem pode ler e quem pode editar. Por exemplo, todos podem ler o `dashboards.json`, mas só a equipa de TI o pode alterar.
-- **Dados dentro da rede:** o feedback (que inclui emails) fica guardado no servidor interno e não em cópias soltas nos computadores dos utilizadores.
+- **Dados dentro da rede:** o feedback (que inclui emails e nomes de utilizador) fica guardado no servidor interno e não em cópias soltas nos computadores dos utilizadores.
 - **Um só sítio para manter:** editas o `dashboards.json` uma vez e todos veem a mudança.
 - **Cópias de segurança:** a pasta passa a fazer parte do backup normal do servidor.
 
@@ -72,16 +72,21 @@ Nota: a segurança vem das permissões do servidor, não da app. O launcher não
 
 ## Segurança dos links
 
-Só são aceites links `https://`. Entradas com `file:`, `http:` ou outros esquemas são ignoradas. Para restringir ainda mais, defina `LAUNCHER_HOSTS` (ex.: `app.powerbi.com,powerbi.com`).
+Só são aceites links `https://`. Entradas com `file:`, `http:` ou outros esquemas são ignoradas. Para restringir ainda mais, define `LAUNCHER_HOSTS` (ex.: `app.powerbi.com,powerbi.com`).
 
 ## Testes
 
 ```
-python -m unittest
+python3 -m unittest
 ```
 
 ## Limitações
 
 - O feedback fica num ficheiro de texto. As gravações usam um ficheiro `.lock` e escrita atómica, por isso envios simultâneos não se perdem, mas em partilhas de rede muito lentas ou com muitos utilizadores o próximo passo seria uma base de dados.
 - Se `feedback.json` estiver corrompido, a app avisa e não o altera (antes sobrescrevia-o).
-- Apagar feedback pede o email usado no envio, mas isto não é segurança a sério, é só confirmação.
+- Só quem enviou um feedback o consegue apagar na app (confere o utilizador do sistema; nos feedbacks antigos pede o email). Isto não é segurança a sério, é só confirmação: quem tiver acesso à pasta de dados pode editar os ficheiros à mão.
+- Se a app fechar à força, pode ficar um ficheiro `.lock` esquecido em `dados/`. Passados 30 segundos a app ignora-o; se preferires, apaga-o à mão.
+
+## Licença
+
+MIT. Vê o ficheiro `LICENSE`.
